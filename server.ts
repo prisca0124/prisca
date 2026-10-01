@@ -156,8 +156,12 @@ app.post('/api/generate-questions', async (req, res) => {
       ? `다음 지정된 단원 범위 내에서만 출제하세요:\n- ${selectedChapters.join('\n- ')}`
       : '문서의 전 범위에서 고르게 출제하세요.';
 
-    // Optimize content context slice (focused 12,000 characters to prevent token overload)
-    const contextSnippet = content.slice(0, 12000);
+    const sectionScope = config.selectedSections && config.selectedSections.length > 0
+      ? `\n[선택된 세부 출제 절(2단계)]:\n- ${config.selectedSections.join('\n- ')}`
+      : '';
+
+    // Optimize content context slice (support up to 60,000 characters to cover full document and all chapters)
+    const contextSnippet = content.length > 60000 ? content.slice(0, 60000) : content;
 
     const prompt = `
 당신은 대한민국 공공기관의 '우편직무 평가문제 출제 전문위원'입니다.
@@ -168,7 +172,7 @@ app.post('/api/generate-questions', async (req, res) => {
 - 총 출제 문항 수: ${count}문항
 - 난이도 배분: 쉬움 ${easyCount}문항, 보통 ${mediumCount}문항, 어려움 ${hardCount}문항
 - 문제 출제 방향: ${orientations}
-- 출제 범위: ${chapterScope}
+- 출제 범위 (1단계 제X장 및 2단계 제X절): ${chapterScope}${sectionScope}
 
 ### [엄격한 문제 출제 원칙 - 절대 위반 금지]
 1. [자료 근거 원칙]: 반드시 아래에 제공된 [우편직무 출제 근거자료]에 명시된 사실과 규정, 기준, 수치에만 근거하여 출제하십시오. 자료에 없는 사실이나 추측을 임의로 절대 추가하지 마십시오.

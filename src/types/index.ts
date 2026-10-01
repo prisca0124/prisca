@@ -39,13 +39,22 @@ export interface ExamConfig {
   difficultyRatio: DifficultyRatio;
   orientations: string[];
   selectedChapters: string[];
+  selectedSections?: string[];
+}
+
+export interface DocumentSection {
+  id: string;
+  name: string; // 2단계: "제X절 [절 제목]"
+  preview: string;
+  charCount?: number;
 }
 
 export interface DocumentChapter {
   id: string;
-  name: string;
+  name: string; // 1단계: "제X장 [장 제목]"
   preview: string;
   charCount: number;
+  sections?: DocumentSection[]; // 2단계: "제X절" 목록
 }
 
 export interface ParsedDocument {

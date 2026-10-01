@@ -52,6 +52,19 @@ export const ConfigStep: React.FC<ConfigStepProps> = ({
       : document.chapters.map((c) => c.name)
   );
 
+  const [selectedSections, setSelectedSections] = useState<string[]>(() => {
+    if (config.selectedSections && config.selectedSections.length > 0) {
+      return config.selectedSections;
+    }
+    const allSecs: string[] = [];
+    document.chapters.forEach((c) => {
+      if (c.sections) {
+        c.sections.forEach((s) => allSecs.push(s.name));
+      }
+    });
+    return allSecs;
+  });
+
   const ratioSum = Number(easyRatio) + Number(mediumRatio) + Number(hardRatio);
   const isRatioValid = ratioSum === 100;
 
@@ -70,25 +83,72 @@ export const ConfigStep: React.FC<ConfigStepProps> = ({
   };
 
   const handleToggleChapter = (chapterName: string) => {
-    let updated: string[];
+    let updatedChaps: string[];
+    let updatedSecs = [...selectedSections];
+    const targetChap = document.chapters.find((c) => c.name === chapterName);
+
     if (selectedChapters.includes(chapterName)) {
-      updated = selectedChapters.filter((c) => c !== chapterName);
+      updatedChaps = selectedChapters.filter((c) => c !== chapterName);
+      // Remove all sections of this chapter
+      if (targetChap && targetChap.sections) {
+        const secNames = targetChap.sections.map((s) => s.name);
+        updatedSecs = updatedSecs.filter((s) => !secNames.includes(s));
+      }
     } else {
-      updated = [...selectedChapters, chapterName];
+      updatedChaps = [...selectedChapters, chapterName];
+      // Add all sections of this chapter
+      if (targetChap && targetChap.sections) {
+        targetChap.sections.forEach((s) => {
+          if (!updatedSecs.includes(s.name)) updatedSecs.push(s.name);
+        });
+      }
     }
-    setSelectedChapters(updated);
-    updateGlobalConfig({ selectedChapters: updated });
+
+    setSelectedChapters(updatedChaps);
+    setSelectedSections(updatedSecs);
+    updateGlobalConfig({ selectedChapters: updatedChaps, selectedSections: updatedSecs });
+  };
+
+  const handleToggleSection = (sectionName: string, parentChapterName: string) => {
+    let updatedSecs: string[];
+    if (selectedSections.includes(sectionName)) {
+      updatedSecs = selectedSections.filter((s) => s !== sectionName);
+    } else {
+      updatedSecs = [...selectedSections, sectionName];
+    }
+
+    // Ensure parent chapter is included if at least one section is selected
+    let updatedChaps = [...selectedChapters];
+    const parentChap = document.chapters.find((c) => c.name === parentChapterName);
+    const hasAnySecSelected = parentChap?.sections?.some((s) => updatedSecs.includes(s.name));
+
+    if (hasAnySecSelected && !updatedChaps.includes(parentChapterName)) {
+      updatedChaps.push(parentChapterName);
+    } else if (!hasAnySecSelected && updatedChaps.includes(parentChapterName)) {
+      updatedChaps = updatedChaps.filter((c) => c !== parentChapterName);
+    }
+
+    setSelectedSections(updatedSecs);
+    setSelectedChapters(updatedChaps);
+    updateGlobalConfig({ selectedSections: updatedSecs, selectedChapters: updatedChaps });
   };
 
   const handleToggleAllChapters = () => {
     if (selectedChapters.length === document.chapters.length) {
-      const updated = [document.chapters[0]?.name || '전체'];
-      setSelectedChapters(updated);
-      updateGlobalConfig({ selectedChapters: updated });
+      const updatedChaps = [document.chapters[0]?.name || '전체'];
+      const updatedSecs = document.chapters[0]?.sections ? document.chapters[0].sections.map((s) => s.name) : [];
+      setSelectedChapters(updatedChaps);
+      setSelectedSections(updatedSecs);
+      updateGlobalConfig({ selectedChapters: updatedChaps, selectedSections: updatedSecs });
     } else {
-      const updated = document.chapters.map((c) => c.name);
-      setSelectedChapters(updated);
-      updateGlobalConfig({ selectedChapters: updated });
+      const updatedChaps = document.chapters.map((c) => c.name);
+      const updatedSecs: string[] = [];
+      document.chapters.forEach((c) => {
+        if (c.sections) c.sections.forEach((s) => updatedSecs.push(s.name));
+      });
+      setSelectedChapters(updatedChaps);
+      setSelectedSections(updatedSecs);
+      updateGlobalConfig({ selectedChapters: updatedChaps, selectedSections: updatedSecs });
     }
   };
 
@@ -104,6 +164,7 @@ export const ConfigStep: React.FC<ConfigStepProps> = ({
       },
       orientations,
       selectedChapters,
+      selectedSections,
       ...overrides,
     });
   };
@@ -417,33 +478,90 @@ export const ConfigStep: React.FC<ConfigStepProps> = ({
             </button>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-3">
             {document.chapters.map((chap) => {
               const isSelected = selectedChapters.includes(chap.name);
               return (
                 <div
                   key={chap.id}
-                  onClick={() => handleToggleChapter(chap.name)}
-                  className={`p-3 rounded-lg border cursor-pointer transition flex items-center justify-between text-xs ${
+                  className={`p-3.5 rounded-xl border transition text-xs ${
                     isSelected
-                      ? 'border-red-500 bg-red-50/40 text-red-950 font-semibold'
-                      : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                      ? 'border-red-400 bg-red-50/20 text-slate-900'
+                      : 'border-slate-200 hover:border-slate-300 text-slate-600 bg-white'
                   }`}
                 >
-                  <div className="flex items-center space-x-3">
-                    <span className="text-red-600">
-                      {isSelected ? (
-                        <CheckSquare className="w-4 h-4 fill-red-600 text-white" />
-                      ) : (
-                        <Square className="w-4 h-4 text-slate-400" />
-                      )}
+                  {/* 1단계: 제X장 헤더 */}
+                  <div
+                    onClick={() => handleToggleChapter(chap.name)}
+                    className="flex items-center justify-between cursor-pointer"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <span className="text-red-600 shrink-0">
+                        {isSelected ? (
+                          <CheckSquare className="w-4 h-4 fill-red-600 text-white" />
+                        ) : (
+                          <Square className="w-4 h-4 text-slate-400" />
+                        )}
+                      </span>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-red-600 text-white shrink-0 shadow-2xs">
+                          {chap.name.match(/^(제\s*[0-9一二三四五육칠팔구십]+\s*장|第\s*[0-9一二三四五육칠팔구십]+\s*章)/i)?.[0] || '단원'}
+                        </span>
+                        <span className="font-bold text-slate-900 line-clamp-1">
+                          {chap.name.replace(/^(제\s*[0-9一二三四五육칠팔구십]+\s*장|第\s*[0-9一二三四五육칠팔구십]+\s*章)\s*/i, '')}
+                        </span>
+                      </div>
+                    </div>
+
+                    <span className="text-[11px] text-slate-400 font-normal">
+                      약 {chap.charCount.toLocaleString()}자
                     </span>
-                    <span>{chap.name}</span>
                   </div>
 
-                  <span className="text-[11px] text-slate-400 font-normal">
-                    약 {chap.charCount.toLocaleString()}자
-                  </span>
+                  {/* 2단계: 제X절 세부 절 체크리스트 */}
+                  {chap.sections && chap.sections.length > 0 && isSelected && (
+                    <div className="mt-3 pt-2.5 border-t border-slate-200/80 pl-7 space-y-1.5">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                        <span>2단계 세부 절 선택 ({chap.sections.length}개 절)</span>
+                        <span className="text-slate-400 font-normal text-[10px]">체크 해제 시 해당 절 제외</span>
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {chap.sections.map((sec) => {
+                          const isSecSelected = selectedSections.includes(sec.name);
+                          return (
+                            <div
+                              key={sec.id}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleSection(sec.name, chap.name);
+                              }}
+                              className={`p-2 rounded-lg border flex items-center justify-between text-[11px] cursor-pointer transition ${
+                                isSecSelected
+                                  ? 'bg-white border-red-300 text-slate-900 shadow-2xs'
+                                  : 'bg-slate-100/70 border-slate-200 text-slate-400'
+                              }`}
+                            >
+                              <div className="flex items-center space-x-2">
+                                <span className="text-red-600 shrink-0">
+                                  {isSecSelected ? (
+                                    <CheckSquare className="w-3.5 h-3.5 fill-red-600 text-white" />
+                                  ) : (
+                                    <Square className="w-3.5 h-3.5 text-slate-300" />
+                                  )}
+                                </span>
+                                <span className="text-[9.5px] font-bold px-1.5 py-0.2 rounded bg-red-50 text-red-700 border border-red-100 shrink-0">
+                                  {sec.name.match(/제\s*[0-9一二三四五육칠팔구십]+\s*절/i)?.[0] || '절'}
+                                </span>
+                                <span className="line-clamp-1 font-medium">
+                                  {sec.name.replace(/^(제\s*[0-9一二三四五육칠팔구십]+\s*절|第\s*[0-9一二三四五육칠팔구십]+\s*節)\s*/i, '')}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}

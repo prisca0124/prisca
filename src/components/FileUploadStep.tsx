@@ -487,32 +487,86 @@ export const FileUploadStep: React.FC<FileUploadStepProps> = ({
             </button>
           </div>
 
-          {/* Extracted Document Structure & Chapters Preview */}
+          {/* Extracted Document Structure & Chapters Preview (1단계 제X장 & 2단계 제X절 2단계 분석) */}
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <h4 className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                <Layers className="w-4 h-4 text-red-600" />
-                <span>파악된 주요 단원 및 목차 ({currentDocument.chapters.length}개)</span>
-              </h4>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center space-x-2">
+                <h4 className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                  <Layers className="w-4 h-4 text-red-600" />
+                  <span>목차 분석 결과: 1단계 [제X장] & 2단계 [제X절] ({currentDocument.chapters.length}개 장)</span>
+                </h4>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-red-100 text-red-800 border border-red-200">
+                  2단계 계층 구조화
+                </span>
+              </div>
               <span className="text-[11px] text-slate-400">
-                다음 단계에서 출제 범위를 선택할 수 있습니다.
+                1단계(장)와 2단계(절)로 세분화되어 정밀 출제가 가능합니다.
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {currentDocument.chapters.map((chap) => (
-                <div
-                  key={chap.id}
-                  className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs"
-                >
-                  <p className="font-semibold text-slate-800 text-xs mb-1 line-clamp-1">
-                    {chap.name}
-                  </p>
-                  <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
-                    {chap.preview}
-                  </p>
-                </div>
-              ))}
+            <div className="space-y-3">
+              {currentDocument.chapters.map((chap, idx) => {
+                const jangMatch = chap.name.match(/^(제\s*[0-9一二三四五육칠팔구십]+\s*장|第\s*[0-9一二三四五육칠팔구십]+\s*章)\s*(.*)/i);
+                const badgeText = jangMatch ? jangMatch[1] : `제${idx + 1}장`;
+                const titleText = jangMatch && jangMatch[2] ? jangMatch[2] : chap.name.replace(/^(제\s*[0-9一二三四五육칠팔구십]+\s*장|第\s*[0-9一二三四五육칠팔구십]+\s*章)\s*/i, '');
+
+                return (
+                  <div
+                    key={chap.id}
+                    className="p-4 bg-slate-50/80 rounded-xl border border-slate-200 hover:border-red-300 transition text-xs shadow-xs"
+                  >
+                    {/* 1단계: 제X장 헤더 */}
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex items-center space-x-2.5">
+                        <span className="text-xs font-bold text-white bg-red-600 px-2.5 py-0.5 rounded-md shadow-xs">
+                          {badgeText}
+                        </span>
+                        <h5 className="font-bold text-slate-900 text-sm">
+                          {titleText || chap.name}
+                        </h5>
+                      </div>
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        {chap.charCount ? `약 ${chap.charCount.toLocaleString()}자` : ''}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-slate-600 mb-3 leading-relaxed pl-1">
+                      {chap.preview}
+                    </p>
+
+                    {/* 2단계: 제X절 목록 */}
+                    {chap.sections && chap.sections.length > 0 && (
+                      <div className="pt-2.5 border-t border-slate-200 space-y-2">
+                        <div className="flex items-center space-x-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">
+                          <span>하위 2단계 세부 절:</span>
+                          <span className="text-red-700 font-semibold">{chap.sections.length}개 절</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {chap.sections.map((sec) => (
+                            <div
+                              key={sec.id}
+                              className="p-2.5 bg-white rounded-lg border border-slate-200/90 shadow-2xs text-[11px]"
+                            >
+                              <div className="flex items-center space-x-2 mb-1">
+                                <span className="font-bold text-red-700 bg-red-50 px-1.5 py-0.5 rounded border border-red-200 text-[10px] shrink-0">
+                                  {sec.name.match(/제\s*[0-9一二三四五육칠팔구십]+\s*절/i)?.[0] || '절'}
+                                </span>
+                                <span className="font-bold text-slate-800 line-clamp-1">
+                                  {sec.name.replace(/^(제\s*[0-9一二三四五육칠팔구십]+\s*절|第\s*[0-9一二三四五육칠팔구십]+\s*節)\s*/i, '')}
+                                </span>
+                              </div>
+                              <p className="text-[10.5px] text-slate-500 line-clamp-2 leading-relaxed">
+                                {sec.preview}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 

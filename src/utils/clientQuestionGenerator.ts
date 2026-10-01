@@ -73,7 +73,13 @@ export function generateQuestionsInBrowser(
     };
 
     const targetNum = (i % 4) + 1; // 1, 2, 3, 4 evenly distributed
-    const generated = createSingleQuestionFromFact(item.line, item.chapter, i + 1, targetNum, difficulties[i] || '보통');
+    const secName = config.selectedSections && config.selectedSections.length > 0
+      ? config.selectedSections[i % config.selectedSections.length]
+      : undefined;
+
+    const categoryText = secName ? `${item.chapter} > ${secName}` : item.chapter;
+
+    const generated = createSingleQuestionFromFact(item.line, categoryText, i + 1, targetNum, difficulties[i] || '보통');
     questions.push(generated);
   }
 
