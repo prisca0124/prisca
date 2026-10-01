@@ -449,260 +449,226 @@ function detectTitle(content: string, fileName: string): string {
 }
 
 /**
- * 2-Tier Hierarchical Detection: 1단계 '제X장' & 2단계 '제X절'
+ * Pure literal '제X장' and '제X절' analyzer.
+ * All previous heuristics, fallbacks, and arbitrary generation rules are completely deleted.
+ * ONLY lines literally containing '제X장' (or '第X章') and '제X절' (or '第X節') are recognized.
  */
 export function detectChaptersByJangAndJeol(
   content: string,
   fileName: string
 ): DocumentChapter[] {
   const lines = content.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
-  const chapterList: DocumentChapter[] = [];
 
-  // Regex for 1단계 '제X장' / '第X章'
-  const jeJangRegex =
-    /^(?:[#*[\]【\s]*)(제\s*[0-9一二三四五육칠팔구십]+\s*장|第\s*[0-9一二三四五육칠팔구십]+\s*章)\b(?:\s*[:.\-]?\s*(.*))?$/i;
+  // Strict regex for literal '제X장' / '第X章'
+  const JANG_REGEX =
+    /^(?:[#*[\]【】<>·•▶■◆○□※\s\d.-]*)(제\s*[0-9一二三四五육칠팔구십]+\s*장|第\s*[0-9一二三四五육칠팔구십]+\s*章)(?:[\s.:\-–—]*)(.*)$/;
 
-  const jeJangHeaders: Array<{ index: number; fullTitle: string; chapterNumStr: string }> = [];
+  // Strict regex for literal '제X절' / '第X절'
+  const JEOL_REGEX =
+    /^(?:[#*[\]【】<>·•▶■◆○□※\s\d.-]*)(제\s*[0-9一二三四五육칠팔구십]+\s*절|第\s*[0-9一二三四五육칠팔구십]+\s*節)(?:[\s.:\-–—]*)(.*)$/;
+
+  const isTocDotLine = (l: string) =>
+    /[.·…]{3,}\s*\d+\s*$/.test(l) || /[-–—]{3,}\s*\d+\s*$/.test(l);
+
+  interface JangMatch {
+    lineIndex: number;
+    title: string;
+    isToc: boolean;
+  }
+
+  const allJangMatches: JangMatch[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const match = line.match(jeJangRegex);
+    const match = line.match(JANG_REGEX);
     if (match && line.length <= 80) {
-      const chapterPrefix = match[1].replace(/\s+/g, '');
-      const subTitle = (match[2] || '').replace(/[#*[\]【】]/g, '').trim();
+      const prefix = match[1].replace(/\s+/g, '');
+      let subTitle = (match[2] || '')
+        .replace(/^[#*[\]【】<>.:\-–—\s]+/, '')
+        .replace(/[#*[\]【】<>.:\-–—\s]+$/, '')
+        .trim();
 
-      let combinedTitle = subTitle ? `${chapterPrefix} ${subTitle}` : chapterPrefix;
-      if (!subTitle && i + 1 < lines.length && lines[i + 1].length >= 2 && lines[i + 1].length <= 50) {
-        combinedTitle = `${chapterPrefix} ${lines[i + 1].replace(/[#*[\]【】]/g, '').trim()}`;
+      if (
+        !subTitle &&
+        i + 1 < lines.length &&
+        lines[i + 1].length >= 2 &&
+        lines[i + 1].length <= 60 &&
+        !JANG_REGEX.test(lines[i + 1]) &&
+        !JEOL_REGEX.test(lines[i + 1])
+      ) {
+        subTitle = lines[i + 1]
+          .replace(/^[#*[\]【】<>.:\-–—\s]+/, '')
+          .replace(/[#*[\]【】<>.:\-–—\s]+$/, '')
+          .trim();
       }
 
-      jeJangHeaders.push({
-        index: i,
-        fullTitle: combinedTitle,
-        chapterNumStr: chapterPrefix,
+      const cleanSub = subTitle.replace(/[.·…\-–—]{2,}\s*\d+\s*$/, '').trim();
+      const combinedTitle = cleanSub ? `${prefix} ${cleanSub}` : prefix;
+
+      allJangMatches.push({
+        lineIndex: i,
+        title: combinedTitle,
+        isToc: isTocDotLine(line),
       });
     }
   }
 
-  // If 2 or more '제X장' found
-  if (jeJangHeaders.length >= 2) {
-    for (let i = 0; i < jeJangHeaders.length; i++) {
-      const cur = jeJangHeaders[i];
-      const nextIdx = i + 1 < jeJangHeaders.length ? jeJangHeaders[i + 1].index : lines.length;
-      const chapterLines = lines.slice(cur.index + 1, nextIdx);
+  const bodyJangMatches = allJangMatches.filter((m) => !m.isToc);
+  const effectiveJangMatches = bodyJangMatches.length > 0 ? bodyJangMatches : allJangMatches;
+
+  if (effectiveJangMatches.length >= 1) {
+    const chapters: DocumentChapter[] = [];
+
+    for (let i = 0; i < effectiveJangMatches.length; i++) {
+      const curJang = effectiveJangMatches[i];
+      const nextIdx =
+        i + 1 < effectiveJangMatches.length ? effectiveJangMatches[i + 1].lineIndex : lines.length;
+
+      const chapterLines = lines.slice(curJang.lineIndex + 1, nextIdx);
       const chapterText = chapterLines.join('\n').trim();
 
-      // Extract 2단계 '제X절' within this chapter
-      const sections = extractSectionsWithinChapter(chapterLines, i + 1);
+      const allJeolMatches: Array<{ lineIndex: number; title: string; isToc: boolean }> = [];
 
-      const preview = chapterLines
-        .slice(0, 5)
-        .map((l) => l.replace(/^[•\-*·0-9.\s]+/, '').trim())
-        .filter((l) => l.length >= 8)
-        .join(' ')
-        .slice(0, 140);
+      for (let j = 0; j < chapterLines.length; j++) {
+        const cLine = chapterLines[j];
+        const jMatch = cLine.match(JEOL_REGEX);
+        if (jMatch && cLine.length <= 80) {
+          const prefix = jMatch[1].replace(/\s+/g, '');
+          let subTitle = (jMatch[2] || '')
+            .replace(/^[#*[\]【】<>.:\-–—\s]+/, '')
+            .replace(/[#*[\]【】<>.:\-–—\s]+$/, '')
+            .trim();
 
-      chapterList.push({
-        id: `chap-${i + 1}`,
-        name: cur.fullTitle,
-        preview: preview || `${cur.fullTitle} 관련 세부 실무 규정 및 기준`,
-        charCount: chapterText.length || 600,
-        sections,
-      });
-    }
+          if (
+            !subTitle &&
+            j + 1 < chapterLines.length &&
+            chapterLines[j + 1].length >= 2 &&
+            chapterLines[j + 1].length <= 60 &&
+            !JANG_REGEX.test(chapterLines[j + 1]) &&
+            !JEOL_REGEX.test(chapterLines[j + 1])
+          ) {
+            subTitle = chapterLines[j + 1]
+              .replace(/^[#*[\]【】<>.:\-–—\s]+/, '')
+              .replace(/[#*[\]【】<>.:\-–—\s]+$/, '')
+              .trim();
+          }
 
-    return chapterList;
-  }
+          const cleanSub = subTitle.replace(/[.·…\-–—]{2,}\s*\d+\s*$/, '').trim();
+          const combinedTitle = cleanSub ? `${prefix} ${cleanSub}` : prefix;
 
-  // Secondary: If document has '제X편' or '단원X' or '1.'
-  const secondaryRegex =
-    /^(?:[#*[\]【\s]*)(제\s*[0-9一二三四五\s]+[절편부]|단원\s*\d+|[I|V|XLCDM]+\.\s+[가-힣]{2,}|[0-9]{1,2}\.\s+[가-힣]{2,30}|【[^】]+】|\[[^\]]+\])/;
+          allJeolMatches.push({
+            lineIndex: j,
+            title: combinedTitle,
+            isToc: isTocDotLine(cLine),
+          });
+        }
+      }
 
-  const sectionHeaders: Array<{ index: number; title: string }> = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (secondaryRegex.test(line) && line.length >= 3 && line.length <= 60) {
-      sectionHeaders.push({ index: i, title: line.replace(/^[#*[\]【】\s]+/, '').replace(/[#*[\]【】\s]+$/, '') });
-    }
-  }
+      const bodyJeolMatches = allJeolMatches.filter((m) => !m.isToc);
+      const effectiveJeolMatches = bodyJeolMatches.length > 0 ? bodyJeolMatches : allJeolMatches;
 
-  if (sectionHeaders.length >= 2) {
-    for (let i = 0; i < sectionHeaders.length; i++) {
-      const cur = sectionHeaders[i];
-      const nextIdx = i + 1 < sectionHeaders.length ? sectionHeaders[i + 1].index : lines.length;
-      const chapterLines = lines.slice(cur.index + 1, nextIdx);
-      const chapterText = chapterLines.join('\n').trim();
+      let sections: DocumentSection[] | undefined = undefined;
 
-      const normalizedChapterName = `제${i + 1}장 ${cur.title.replace(/^[0-9.\-\s]+/, '')}`;
-      const sections = extractSectionsWithinChapter(chapterLines, i + 1);
+      if (effectiveJeolMatches.length >= 1) {
+        sections = [];
+        for (let k = 0; k < effectiveJeolMatches.length; k++) {
+          const curJeol = effectiveJeolMatches[k];
+          const nextJeolIdx =
+            k + 1 < effectiveJeolMatches.length
+              ? effectiveJeolMatches[k + 1].lineIndex
+              : chapterLines.length;
+
+          const secLines = chapterLines.slice(curJeol.lineIndex + 1, nextJeolIdx);
+          const secText = secLines.join('\n').trim();
+
+          const preview = secLines
+            .slice(0, 3)
+            .map((l) => l.replace(/^[•\-*·0-9.\s]+/, '').trim())
+            .filter((l) => l.length >= 6)
+            .join(' ')
+            .slice(0, 120);
+
+          sections.push({
+            id: `sec-${i + 1}-${k + 1}`,
+            name: curJeol.title,
+            preview: preview || `${curJeol.title} 관련 본문 내용`,
+            charCount: secText.length || 300,
+          });
+        }
+      }
 
       const preview = chapterLines
         .slice(0, 4)
         .map((l) => l.replace(/^[•\-*·0-9.\s]+/, '').trim())
-        .filter((l) => l.length >= 8)
+        .filter((l) => l.length >= 6)
         .join(' ')
-        .slice(0, 130);
+        .slice(0, 140);
 
-      chapterList.push({
+      chapters.push({
         id: `chap-${i + 1}`,
-        name: normalizedChapterName,
-        preview: preview || `${normalizedChapterName} 관련 우편업무 기준 및 처리 요령`,
+        name: curJang.title,
+        preview: preview || `${curJang.title} 관련 본문 내용`,
         charCount: chapterText.length || 600,
         sections,
       });
     }
 
-    return chapterList.slice(0, 10);
+    return chapters;
   }
 
-  // Fallback: partition into 3~5 logical '제X장' with '제X절'
-  const totalLen = content.length;
-  const numChunks = Math.min(5, Math.max(3, Math.round(totalLen / 3500)));
-  const chunkSize = Math.floor(totalLen / numChunks);
-
-  for (let i = 0; i < numChunks; i++) {
-    const start = i * chunkSize;
-    const end = i === numChunks - 1 ? totalLen : (i + 1) * chunkSize;
-    const slice = content.slice(start, end).trim();
-    const chapterLines = slice.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
-
-    const firstLine =
-      chapterLines.filter((l) => l.length >= 4 && l.length <= 35)[0] || `우편직무 핵심영역 (${i + 1}단원)`;
-
-    const chapterName = `제${i + 1}장 ${firstLine.replace(/^[0-9.\-\s]+/, '')}`;
-    const sections = extractSectionsWithinChapter(chapterLines, i + 1);
-
-    chapterList.push({
-      id: `chap-${i + 1}`,
-      name: chapterName,
-      preview: slice.slice(0, 130) + '...',
-      charCount: slice.length,
-      sections,
-    });
-  }
-
-  return chapterList;
-}
-
-/**
- * Extracts 2단계 '제X절' within a chapter's lines
- */
-function extractSectionsWithinChapter(
-  chapterLines: string[],
-  chapNum: number
-): DocumentSection[] {
-  const sections: DocumentSection[] = [];
-
-  const jeolRegex =
-    /^(?:[#*[\]【\s]*)(제\s*[0-9一二三四五육칠팔구십]+\s*절|第\s*[0-9一二三四五육칠팔구십]+\s*節)\b(?:\s*[:.\-]?\s*(.*))?$/i;
-
-  const jeolHeaders: Array<{ index: number; fullTitle: string }> = [];
-
-  for (let j = 0; j < chapterLines.length; j++) {
-    const line = chapterLines[j];
-    const match = line.match(jeolRegex);
-    if (match && line.length <= 80) {
-      const jeolPrefix = match[1].replace(/\s+/g, '');
-      const sub = (match[2] || '').replace(/[#*[\]【】]/g, '').trim();
-
-      let combined = sub ? `${jeolPrefix} ${sub}` : jeolPrefix;
-      if (!sub && j + 1 < chapterLines.length && chapterLines[j + 1].length >= 2 && chapterLines[j + 1].length <= 50) {
-        combined = `${jeolPrefix} ${chapterLines[j + 1].replace(/[#*[\]【】]/g, '').trim()}`;
-      }
-
-      jeolHeaders.push({ index: j, fullTitle: combined });
-    }
-  }
-
-  // If explicit '제X절' headers found
-  if (jeolHeaders.length >= 2) {
-    for (let k = 0; k < jeolHeaders.length; k++) {
-      const curSec = jeolHeaders[k];
-      const nextSecIdx = k + 1 < jeolHeaders.length ? jeolHeaders[k + 1].index : chapterLines.length;
-      const secLines = chapterLines.slice(curSec.index + 1, nextSecIdx);
-      const secText = secLines.join('\n').trim();
-
-      const preview = secLines
-        .slice(0, 3)
-        .map((l) => l.replace(/^[•\-*·0-9.\s]+/, '').trim())
-        .filter((l) => l.length >= 8)
-        .join(' ')
-        .slice(0, 120);
-
-      sections.push({
-        id: `sec-${chapNum}-${k + 1}`,
-        name: curSec.fullTitle,
-        preview: preview || `${curSec.fullTitle} 관련 세부 실무 요건`,
-        charCount: secText.length || 300,
-      });
-    }
-    return sections;
-  }
-
-  // Secondary sub-sections: look for 1. , 2. , or [소제목]
-  const subRegex = /^([0-9]{1,2}\.\s+[가-힣]{2,25}|[가-힣]{2,20}\s*(요건|기준|체계|절차|취급|안내))/;
-  const subHeaders: Array<{ index: number; title: string }> = [];
-
-  for (let j = 0; j < chapterLines.length; j++) {
-    const line = chapterLines[j];
-    if (subRegex.test(line) && line.length >= 4 && line.length <= 45) {
-      subHeaders.push({ index: j, title: line.replace(/^[0-9.\-\s]+/, '').trim() });
-    }
-  }
-
-  if (subHeaders.length >= 2) {
-    for (let k = 0; k < Math.min(4, subHeaders.length); k++) {
-      const curSec = subHeaders[k];
-      const nextSecIdx = k + 1 < subHeaders.length ? subHeaders[k + 1].index : chapterLines.length;
-      const secLines = chapterLines.slice(curSec.index + 1, nextSecIdx);
-
-      const preview = secLines
-        .slice(0, 3)
-        .map((l) => l.replace(/^[•\-*·0-9.\s]+/, '').trim())
-        .filter((l) => l.length >= 8)
-        .join(' ')
-        .slice(0, 120);
-
-      sections.push({
-        id: `sec-${chapNum}-${k + 1}`,
-        name: `제${k + 1}절 ${curSec.title}`,
-        preview: preview || `제${k + 1}절 ${curSec.title} 관련 세부 기준`,
-        charCount: secLines.join(' ').length || 300,
-      });
-    }
-    return sections;
-  }
-
-  // Fallback: 2 standard sub-sections
-  const mid = Math.floor(chapterLines.length / 2);
-  const p1 = chapterLines.slice(0, mid).join(' ').slice(0, 120);
-  const p2 = chapterLines.slice(mid).join(' ').slice(0, 120);
+  const docTitle = detectTitle(content, fileName);
+  const preview = lines
+    .slice(0, 4)
+    .map((l) => l.replace(/^[•\-*·0-9.\s]+/, '').trim())
+    .filter((l) => l.length >= 6)
+    .join(' ')
+    .slice(0, 140);
 
   return [
     {
-      id: `sec-${chapNum}-1`,
-      name: `제1절 ${chapterLines[0]?.slice(0, 20) || '기본 규정 및 요건'}`,
-      preview: p1 || '제1절 관련 핵심 규정 및 기준',
-      charCount: Math.round(chapterLines.join(' ').length / 2),
-    },
-    {
-      id: `sec-${chapNum}-2`,
-      name: `제2절 ${chapterLines[mid]?.slice(0, 20) || '세부 취급 및 실무 지침'}`,
-      preview: p2 || '제2절 관련 실무 취급 및 예외 기준',
-      charCount: Math.round(chapterLines.join(' ').length / 2),
+      id: 'chap-1',
+      name: docTitle || '본문 전체',
+      preview: preview || '본문 실제 내용',
+      charCount: content.length,
+      sections: undefined,
     },
   ];
 }
 
 function detectKeyTopics(content: string): string[] {
-  const topics = [
-    '통상우편', '소포우편', '우편요금', '다량우편감액', '내용증명', '등기취급',
-    '손해배상', '우편금지물품', '특약소포', '국제우편(EMS)', '우편물류', '배달증명',
-    '당일특급', '익일특급', '리튬배터리', '개피요구권', '우편수수료'
-  ];
+  const wordCounts = new Map<string, number>();
+  const words = content.match(/[가-힣]{2,10}/g) || [];
+  const stopwords = new Set([
+    '우편', '경우', '따라', '대한', '통해', '관련', '있음', '없음', '모든', '기타', '사항', '이상', '이하', '내용', '기준'
+  ]);
 
-  const found = topics.filter((t) => content.includes(t));
-  return found.length >= 3 ? found.slice(0, 8) : ['우편직무', '규격기준', '요금체계'];
+  for (const word of words) {
+    if (stopwords.has(word)) continue;
+    wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
+  }
+
+  const sorted = Array.from(wordCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .filter(([_, count]) => count >= 2)
+    .map(([word]) => word);
+
+  if (sorted.length >= 3) {
+    return sorted.slice(0, 8);
+  }
+
+  const lines = content.split('\n').slice(0, 10);
+  const fallbackWords: string[] = [];
+  for (const l of lines) {
+    const matched = l.match(/[가-힣]{2,6}/g) || [];
+    for (const w of matched) {
+      if (!stopwords.has(w) && !fallbackWords.includes(w)) {
+        fallbackWords.push(w);
+      }
+      if (fallbackWords.length >= 5) break;
+    }
+  }
+
+  return fallbackWords.length > 0 ? fallbackWords : ['직무 규정', '업무 기준'];
 }
 
 function detectKeyRules(content: string): string[] {

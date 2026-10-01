@@ -504,9 +504,11 @@ export const ConfigStep: React.FC<ConfigStepProps> = ({
                         )}
                       </span>
                       <div className="flex items-center space-x-2">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-red-600 text-white shrink-0 shadow-2xs">
-                          {chap.name.match(/^(제\s*[0-9一二三四五육칠팔구십]+\s*장|第\s*[0-9一二三四五육칠팔구십]+\s*章)/i)?.[0] || '단원'}
-                        </span>
+                        {chap.name.match(/^(제\s*[0-9一二三四五육칠팔구십]+\s*장|第\s*[0-9一二三四五육칠팔구십]+\s*章)/i) && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-red-600 text-white shrink-0 shadow-2xs">
+                            {chap.name.match(/^(제\s*[0-9一二三四五육칠팔구십]+\s*장|第\s*[0-9一二三四五육칠팔구십]+\s*章)/i)?.[0]}
+                          </span>
+                        )}
                         <span className="font-bold text-slate-900 line-clamp-1">
                           {chap.name.replace(/^(제\s*[0-9一二三四五육칠팔구십]+\s*장|第\s*[0-9一二三四五육칠팔구십]+\s*章)\s*/i, '')}
                         </span>
@@ -518,16 +520,17 @@ export const ConfigStep: React.FC<ConfigStepProps> = ({
                     </span>
                   </div>
 
-                  {/* 2단계: 제X절 세부 절 체크리스트 */}
+                  {/* 2단계: 제X절 세부 절 체크리스트 (본문에 실제로 존재할 때만 표시) */}
                   {chap.sections && chap.sections.length > 0 && isSelected && (
                     <div className="mt-3 pt-2.5 border-t border-slate-200/80 pl-7 space-y-1.5">
                       <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                        <span>2단계 세부 절 선택 ({chap.sections.length}개 절)</span>
+                        <span>본문 세부 절 선택 ({chap.sections.length}개 절)</span>
                         <span className="text-slate-400 font-normal text-[10px]">체크 해제 시 해당 절 제외</span>
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                         {chap.sections.map((sec) => {
                           const isSecSelected = selectedSections.includes(sec.name);
+                          const secBadge = sec.name.match(/^(제\s*[0-9一二三四五육칠팔구십]+\s*절|第\s*[0-9一二三四五육칠팔구십]+\s*節)/i)?.[0];
                           return (
                             <div
                               key={sec.id}
@@ -549,9 +552,11 @@ export const ConfigStep: React.FC<ConfigStepProps> = ({
                                     <Square className="w-3.5 h-3.5 text-slate-300" />
                                   )}
                                 </span>
-                                <span className="text-[9.5px] font-bold px-1.5 py-0.2 rounded bg-red-50 text-red-700 border border-red-100 shrink-0">
-                                  {sec.name.match(/제\s*[0-9一二三四五육칠팔구십]+\s*절/i)?.[0] || '절'}
-                                </span>
+                                {secBadge && (
+                                  <span className="text-[9.5px] font-bold px-1.5 py-0.2 rounded bg-red-50 text-red-700 border border-red-100 shrink-0">
+                                    {secBadge}
+                                  </span>
+                                )}
                                 <span className="line-clamp-1 font-medium">
                                   {sec.name.replace(/^(제\s*[0-9一二三四五육칠팔구십]+\s*절|第\s*[0-9一二三四五육칠팔구십]+\s*節)\s*/i, '')}
                                 </span>

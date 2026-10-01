@@ -83,3 +83,5 @@ export interface SavedExamSession {
   questions: PostalQuestion[];
   config: ExamConfig;
 }
+
+export const __TYPES_MODULE__ = true;

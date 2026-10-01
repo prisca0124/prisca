@@ -505,9 +505,9 @@ export const FileUploadStep: React.FC<FileUploadStepProps> = ({
             </div>
 
             <div className="space-y-3">
-              {currentDocument.chapters.map((chap, idx) => {
+              {currentDocument.chapters.map((chap) => {
                 const jangMatch = chap.name.match(/^(제\s*[0-9一二三四五육칠팔구십]+\s*장|第\s*[0-9一二三四五육칠팔구십]+\s*章)\s*(.*)/i);
-                const badgeText = jangMatch ? jangMatch[1] : `제${idx + 1}장`;
+                const badgeText = jangMatch ? jangMatch[1] : null;
                 const titleText = jangMatch && jangMatch[2] ? jangMatch[2] : chap.name.replace(/^(제\s*[0-9一二三四五육칠팔구십]+\s*장|第\s*[0-9一二三四五육칠팔구십]+\s*章)\s*/i, '');
 
                 return (
@@ -515,12 +515,14 @@ export const FileUploadStep: React.FC<FileUploadStepProps> = ({
                     key={chap.id}
                     className="p-4 bg-slate-50/80 rounded-xl border border-slate-200 hover:border-red-300 transition text-xs shadow-xs"
                   >
-                    {/* 1단계: 제X장 헤더 */}
+                    {/* 1단계: 제X장 헤더 (본문에 실제로 있을 때만 뱃지 표시) */}
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex items-center space-x-2.5">
-                        <span className="text-xs font-bold text-white bg-red-600 px-2.5 py-0.5 rounded-md shadow-xs">
-                          {badgeText}
-                        </span>
+                        {badgeText && (
+                          <span className="text-xs font-bold text-white bg-red-600 px-2.5 py-0.5 rounded-md shadow-xs shrink-0">
+                            {badgeText}
+                          </span>
+                        )}
                         <h5 className="font-bold text-slate-900 text-sm">
                           {titleText || chap.name}
                         </h5>
@@ -534,33 +536,40 @@ export const FileUploadStep: React.FC<FileUploadStepProps> = ({
                       {chap.preview}
                     </p>
 
-                    {/* 2단계: 제X절 목록 */}
+                    {/* 2단계: 제X절 목록 (본문에 실제로 존재할 때만 표시) */}
                     {chap.sections && chap.sections.length > 0 && (
                       <div className="pt-2.5 border-t border-slate-200 space-y-2">
                         <div className="flex items-center space-x-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">
-                          <span>하위 2단계 세부 절:</span>
+                          <span>본문 세부 절:</span>
                           <span className="text-red-700 font-semibold">{chap.sections.length}개 절</span>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {chap.sections.map((sec) => (
-                            <div
-                              key={sec.id}
-                              className="p-2.5 bg-white rounded-lg border border-slate-200/90 shadow-2xs text-[11px]"
-                            >
-                              <div className="flex items-center space-x-2 mb-1">
-                                <span className="font-bold text-red-700 bg-red-50 px-1.5 py-0.5 rounded border border-red-200 text-[10px] shrink-0">
-                                  {sec.name.match(/제\s*[0-9一二三四五육칠팔구십]+\s*절/i)?.[0] || '절'}
-                                </span>
-                                <span className="font-bold text-slate-800 line-clamp-1">
-                                  {sec.name.replace(/^(제\s*[0-9一二三四五육칠팔구십]+\s*절|第\s*[0-9一二三四五육칠팔구십]+\s*節)\s*/i, '')}
-                                </span>
+                          {chap.sections.map((sec) => {
+                            const secMatch = sec.name.match(/^(제\s*[0-9一二三四五육칠팔구십]+\s*절|第\s*[0-9一二三四五육칠팔구십]+\s*節)/i);
+                            const secBadge = secMatch ? secMatch[0] : null;
+
+                            return (
+                              <div
+                                key={sec.id}
+                                className="p-2.5 bg-white rounded-lg border border-slate-200/90 shadow-2xs text-[11px]"
+                              >
+                                <div className="flex items-center space-x-2 mb-1">
+                                  {secBadge && (
+                                    <span className="font-bold text-red-700 bg-red-50 px-1.5 py-0.5 rounded border border-red-200 text-[10px] shrink-0">
+                                      {secBadge}
+                                    </span>
+                                  )}
+                                  <span className="font-bold text-slate-800 line-clamp-1">
+                                    {sec.name.replace(/^(제\s*[0-9一二三四五육칠팔구십]+\s*절|第\s*[0-9一二三四五육칠팔구십]+\s*節)\s*/i, '')}
+                                  </span>
+                                </div>
+                                <p className="text-[10.5px] text-slate-500 line-clamp-2 leading-relaxed">
+                                  {sec.preview}
+                                </p>
                               </div>
-                              <p className="text-[10.5px] text-slate-500 line-clamp-2 leading-relaxed">
-                                {sec.preview}
-                              </p>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}
