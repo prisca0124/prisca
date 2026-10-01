@@ -1,0 +1,6 @@
+{
+  "name": "우편직무 평가문제 출제도우미",
+  "description": "우편직무 교육 및 업무자료(HWP, PDF)를 기반으로 4지선다형 평가문제를 생성하고 검토·수정·출력하는 출제 지원 웹앱",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
