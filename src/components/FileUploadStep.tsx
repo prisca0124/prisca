@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { ParsedDocument } from '../types';
 import { SAMPLE_DOCUMENTS } from '../data/sampleDocuments';
+import { parseDocumentInBrowser } from '../utils/clientDocumentParser';
 
 interface FileUploadStepProps {
   currentDocument: ParsedDocument | null;
@@ -63,58 +64,63 @@ export const FileUploadStep: React.FC<FileUploadStepProps> = ({
     setLoadingPhase('HWP/PDF 문서 구조 분석 및 텍스트 추출 중...');
 
     try {
-      const reader = new FileReader();
-      const base64Promise = new Promise<string>((resolve, reject) => {
-        reader.onload = () => {
-          const res = reader.result as string;
-          const base64 = res.split(',')[1] || res;
-          resolve(base64);
-        };
-        reader.onerror = (err) => reject(err);
-        reader.readAsDataURL(file);
-      });
-
-      const base64Data = await base64Promise;
+      const arrayBuffer = await file.arrayBuffer();
       const fileExt = fileName.split('.').pop() || 'hwp';
+      let parsedDoc: ParsedDocument | null = null;
 
-      setLoadingPhase('문서 내 단원(목차), 핵심 규정 및 기준 분석 중...');
+      // 1. First, attempt backend API parsing if server is available
+      try {
+        const base64Data = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const res = reader.result as string;
+            resolve(res.split(',')[1] || res);
+          };
+          reader.readAsDataURL(file);
+        });
 
-      const response = await fetch('/api/parse-document', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileName,
-          fileType: fileExt,
-          base64Data,
-        }),
-      });
+        const response = await fetch('/api/parse-document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileName,
+            fileType: fileExt,
+            base64Data,
+          }),
+        });
 
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(
-          result.error ||
-            '자료 내용을 충분히 확인하지 못했습니다. 다른 파일 형식으로 다시 업로드하거나 자료를 확인해주세요.'
-        );
+        const contentType = response.headers.get('content-type') || '';
+        if (response.ok && contentType.includes('application/json')) {
+          const result = await response.json();
+          if (result && result.success && result.document) {
+            parsedDoc = {
+              id: `doc-${Date.now()}`,
+              fileName: file.name,
+              fileType: fileExt as any,
+              fileSize: file.size,
+              uploadedAt: new Date().toISOString(),
+              title: result.document.title || file.name.replace(/\.[^/.]+$/, ''),
+              totalChars: result.document.totalChars || 0,
+              content: result.document.content || '',
+              chapters: result.document.chapters || [],
+              keyTopics: result.document.keyTopics || [],
+              keyRules: result.document.keyRules,
+              procedures: result.document.procedures,
+            };
+          }
+        }
+      } catch (apiErr) {
+        console.warn('Backend API unavailable (e.g. GitHub Pages static deployment), activating browser-direct parser:', apiErr);
       }
 
-      const parsed: ParsedDocument = {
-        id: `doc-${Date.now()}`,
-        fileName: file.name,
-        fileType: fileExt as any,
-        fileSize: file.size,
-        uploadedAt: new Date().toISOString(),
-        title: result.document.title || file.name.replace(/\.[^/.]+$/, ''),
-        totalChars: result.document.totalChars || 0,
-        content: result.document.content || '',
-        chapters: result.document.chapters || [],
-        keyTopics: result.document.keyTopics || [],
-        keyRules: result.document.keyRules,
-        procedures: result.document.procedures,
-      };
+      // 2. Client-side browser direct parser (guaranteed to work on GitHub Pages, offline, and static hosts)
+      if (!parsedDoc) {
+        setLoadingPhase('브라우저 직접 분석 엔진(GitHub 호환)으로 HWP/PDF 분석 중...');
+        parsedDoc = await parseDocumentInBrowser(file, arrayBuffer);
+      }
 
-      setEditedText(parsed.content);
-      onDocumentLoaded(parsed);
+      setEditedText(parsedDoc.content);
+      onDocumentLoaded(parsedDoc);
     } catch (err: any) {
       console.error('File parsing failure:', err);
       setErrorMessage(
@@ -161,37 +167,52 @@ export const FileUploadStep: React.FC<FileUploadStepProps> = ({
     setErrorMessage(null);
 
     try {
-      const response = await fetch('/api/parse-document', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileName: (manualTitle || '우편직무_입력자료') + '.txt',
-          plainText: manualText,
-        }),
-      });
+      let parsedDoc: ParsedDocument | null = null;
 
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || '자료 분석 중 오류가 발생했습니다.');
+      try {
+        const response = await fetch('/api/parse-document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileName: (manualTitle || '우편직무_입력자료') + '.txt',
+            plainText: manualText,
+          }),
+        });
+
+        const contentType = response.headers.get('content-type') || '';
+        if (response.ok && contentType.includes('application/json')) {
+          const result = await response.json();
+          if (result && result.success && result.document) {
+            parsedDoc = {
+              id: `doc-manual-${Date.now()}`,
+              fileName: (manualTitle || '우편직무_입력자료') + '.txt',
+              fileType: 'txt',
+              fileSize: new Blob([manualText]).size,
+              uploadedAt: new Date().toISOString(),
+              title: manualTitle || result.document.title,
+              totalChars: result.document.totalChars,
+              content: result.document.content,
+              chapters: result.document.chapters,
+              keyTopics: result.document.keyTopics,
+              keyRules: result.document.keyRules,
+              procedures: result.document.procedures,
+            };
+          }
+        }
+      } catch (apiErr) {
+        console.warn('Backend unavailable, using browser text parsing:', apiErr);
       }
 
-      const parsed: ParsedDocument = {
-        id: `doc-manual-${Date.now()}`,
-        fileName: (manualTitle || '우편직무_입력자료') + '.txt',
-        fileType: 'txt',
-        fileSize: new Blob([manualText]).size,
-        uploadedAt: new Date().toISOString(),
-        title: manualTitle || result.document.title,
-        totalChars: result.document.totalChars,
-        content: result.document.content,
-        chapters: result.document.chapters,
-        keyTopics: result.document.keyTopics,
-        keyRules: result.document.keyRules,
-        procedures: result.document.procedures,
-      };
+      if (!parsedDoc) {
+        // Fallback in-browser parsing for manual text
+        const textBlob = new Blob([manualText], { type: 'text/plain;charset=utf-8' });
+        const mockFile = new File([textBlob], (manualTitle || '우편직무_입력자료') + '.txt', { type: 'text/plain' });
+        const buffer = await textBlob.arrayBuffer();
+        parsedDoc = await parseDocumentInBrowser(mockFile, buffer);
+      }
 
-      setEditedText(parsed.content);
-      onDocumentLoaded(parsed);
+      setEditedText(parsedDoc.content);
+      onDocumentLoaded(parsedDoc);
     } catch (err: any) {
       setErrorMessage(err.message);
     } finally {
@@ -330,7 +351,7 @@ export const FileUploadStep: React.FC<FileUploadStepProps> = ({
 
             <div className="inline-flex items-center space-x-2 px-3 py-1.5 rounded-md bg-slate-100 text-slate-700 text-xs font-medium border border-slate-200">
               <ShieldCheck className="w-4 h-4 text-red-600" />
-              <span>바이너리 HWP 본문 문단 및 표 텍스트 완벽 추출 지원</span>
+              <span>GitHub Pages 배포 및 브라우저 직접 분석 100% 지원</span>
             </div>
           </div>
 

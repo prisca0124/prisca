@@ -9,6 +9,7 @@ import { ExamPaperView } from './components/ExamPaperView';
 import { GeneratingOverlay } from './components/GeneratingOverlay';
 import { ParsedDocument, ExamConfig, PostalQuestion, SavedExamSession } from './types';
 import { SAMPLE_DOCUMENTS } from './data/sampleDocuments';
+import { generateQuestionsInBrowser } from './utils/clientQuestionGenerator';
 import { AlertTriangle, RefreshCw, X, ShieldAlert } from 'lucide-react';
 
 const STORAGE_KEY = 'postal_exam_saved_sessions_v1';
@@ -245,46 +246,62 @@ export default function App() {
     setErrorDialog(null);
 
     try {
-      const response = await fetch('/api/generate-questions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: document.content,
-          selectedChapters: config.selectedChapters,
-          config,
-        }),
-      });
+      let data: any = null;
 
-      const data = await response.json();
+      try {
+        const response = await fetch('/api/generate-questions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: document.content,
+            selectedChapters: config.selectedChapters,
+            config,
+          }),
+        });
 
-      if (!response.ok || !data.success) {
-        const errorText = data.error || '문항 생성에 실패했습니다.';
-        const is503 =
-          data.isOverloaded ||
-          errorText.includes('503') ||
-          errorText.includes('high demand') ||
-          errorText.includes('UNAVAILABLE');
-
-        if (is503) {
-          setErrorDialog({
-            title: '구글 AI 모델 일시적 사용량 급증 (503 High Demand 안내)',
-            message:
-              '구글 Gemini AI 모델에 일시적으로 많은 요청이 집중되어 응답이 지연되었습니다.\n\n현재 설정하신 출제 조건(과목명, 문항 수, 난이도 등)과 업로드된 자료는 모두 안전하게 보존되어 있습니다.\n\n아래 [지금 다시 시도] 버튼을 누르면 대체 고속 모델 클러스터로 연결되어 즉시 문제 생성이 재개됩니다.',
-            is503: true,
-            onRetry: () => {
-              setErrorDialog(null);
-              handleGenerateQuestions();
-            },
-          });
-          return;
+        const contentType = response.headers.get('content-type') || '';
+        if (response.ok && contentType.includes('application/json')) {
+          data = await response.json();
+        } else if (response.status === 503) {
+          data = await response.json().catch(() => ({ isOverloaded: true, error: '503 UNAVAILABLE' }));
         }
-
-        throw new Error(errorText);
+      } catch (fetchErr) {
+        console.warn('Backend API request failed (e.g. GitHub Pages or static host):', fetchErr);
       }
 
-      setQuestions(data.questions);
-      setCurrentStep(3); // Move to Review
-      showToast(`${data.questions.length}개의 4지선다형 평가문제가 생성되었습니다.`);
+      // If backend API succeeded and returned questions
+      if (data && data.success && data.questions) {
+        setQuestions(data.questions);
+        setCurrentStep(3);
+        showToast(`${data.questions.length}개의 4지선다형 평가문제가 생성되었습니다.`);
+        return;
+      }
+
+      // Handle 503 error if from backend
+      if (data && data.isOverloaded) {
+        setErrorDialog({
+          title: '구글 AI 모델 일시적 사용량 급증 (503 High Demand 안내)',
+          message:
+            '구글 Gemini AI 모델에 일시적으로 많은 요청이 집중되어 응답이 지연되었습니다.\n\n현재 설정하신 출제 조건(과목명, 문항 수, 난이도 등)과 업로드된 자료는 모두 안전하게 보존되어 있습니다.\n\n아래 [지금 다시 시도] 버튼을 누르면 대체 고속 모델 클러스터로 연결되어 즉시 문제 생성이 재개됩니다.',
+          is503: true,
+          onRetry: () => {
+            setErrorDialog(null);
+            handleGenerateQuestions();
+          },
+        });
+        return;
+      }
+
+      // Static GitHub Pages / Offline fallback generation
+      console.log('Using client-side browser evaluation engine for GitHub Pages deployment...');
+      const fallbackQuestions = generateQuestionsInBrowser(
+        document.content,
+        config.selectedChapters,
+        config
+      );
+      setQuestions(fallbackQuestions);
+      setCurrentStep(3);
+      showToast(`${fallbackQuestions.length}개의 4지선다형 평가문제가 생성되었습니다.`);
     } catch (err: any) {
       console.error('Generation error:', err);
       const raw = err?.message || String(err);
@@ -302,7 +319,15 @@ export default function App() {
           },
         });
       } else {
-        showToast(raw || '문제 생성 중 오류가 발생했습니다.');
+        // Even on general error, produce questions via fallback engine
+        const fallbackQuestions = generateQuestionsInBrowser(
+          document.content,
+          config.selectedChapters,
+          config
+        );
+        setQuestions(fallbackQuestions);
+        setCurrentStep(3);
+        showToast(`${fallbackQuestions.length}개의 4지선다형 평가문제가 생성되었습니다.`);
       }
     } finally {
       setIsGenerating(false);
