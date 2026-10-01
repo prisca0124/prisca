@@ -1,7 +1,7 @@
 import * as CFB from 'cfb';
 import JSZip from 'jszip';
 import { inflate, inflateRaw } from 'pako';
-import { ParsedDocument, DocumentChapter, DocumentSection } from '../types';
+import type { ParsedDocument, DocumentChapter, DocumentSection } from '../types/index.ts';
 
 /**
  * Universal browser-side document parser for HWP, HWPX, PDF, DOCX, and TXT.

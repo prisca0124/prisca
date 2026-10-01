@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import { parseDocumentBuffer } from './src/server/documentParser.ts';
 import type { PostalQuestion, ExamConfig } from './src/types/index.ts';
+import { sanitizeQuestionStem, sanitizeOptionText } from './src/utils/sanitizeQuestion.ts';
 
 dotenv.config();
 
@@ -152,13 +153,35 @@ app.post('/api/generate-questions', async (req, res) => {
       ? config.orientations.join(', ')
       : '핵심내용 중심, 업무상황 중심';
 
-    const chapterScope = selectedChapters && selectedChapters.length > 0
-      ? `다음 지정된 단원 범위 내에서만 출제하세요:\n- ${selectedChapters.join('\n- ')}`
+    const activeChapters = selectedChapters && selectedChapters.length > 0 ? selectedChapters : [];
+    const activeSections = config.selectedSections && config.selectedSections.length > 0 ? config.selectedSections : [];
+
+    const chapterScope = activeChapters.length > 0
+      ? `다음 지정된 단원 범위 내에서만 출제하세요:\n- ${activeChapters.join('\n- ')}`
       : '문서의 전 범위에서 고르게 출제하세요.';
 
-    const sectionScope = config.selectedSections && config.selectedSections.length > 0
-      ? `\n[선택된 세부 출제 절(2단계)]:\n- ${config.selectedSections.join('\n- ')}`
+    const sectionScope = activeSections.length > 0
+      ? `\n[선택된 세부 출제 절(2단계)]:\n- ${activeSections.join('\n- ')}`
       : '';
+
+    // Calculate balanced quota allocation across selected chapters to ensure even distribution
+    let distributionQuotaSection = '';
+    if (activeChapters.length > 0) {
+      const basePerChap = Math.floor(count / activeChapters.length);
+      const remainder = count % activeChapters.length;
+      const chapterListWithQuotas = activeChapters.map((chap, idx) => {
+        const quota = basePerChap + (idx < remainder ? 1 : 0);
+        return `- [${chap}]: 약 ${quota}문항 출제 (필수 배분)`;
+      });
+
+      distributionQuotaSection = `
+### [선택 범위 내 문항 균등 배분 할당표 - 엄격 준수]
+출제자가 지정한 아래 범위 전체에서 편중 없이 고르게 문제를 출제하십시오. 특정 단원에 치우치지 않아야 합니다:
+${chapterListWithQuotas.join('\n')}
+${activeSections.length > 0 ? `[선택된 세부 절]: 아래 절들에서도 골고루 나누어 출제하십시오:\n- ${activeSections.join('\n- ')}` : ''}
+*필수: 위 할당표에 명시된 단원별 문항 수에 맞춰 모든 선택 단원에서 균등하게 출제해야 합니다.
+`;
+    }
 
     // Optimize content context slice (support up to 60,000 characters to cover full document and all chapters)
     const contextSnippet = content.length > 60000 ? content.slice(0, 60000) : content;
@@ -173,20 +196,33 @@ app.post('/api/generate-questions', async (req, res) => {
 - 난이도 배분: 쉬움 ${easyCount}문항, 보통 ${mediumCount}문항, 어려움 ${hardCount}문항
 - 문제 출제 방향: ${orientations}
 - 출제 범위 (1단계 제X장 및 2단계 제X절): ${chapterScope}${sectionScope}
-
+${distributionQuotaSection}
 ### [엄격한 문제 출제 원칙 - 절대 위반 금지]
 1. [100% 자료 근거 원칙 (외부 지식 및 가상 내용 추가 절대 금지)]:
    - 반드시 아래에 제공된 [출제 근거자료] 본문에 실제로 명시되어 있는 사실, 규정, 기준 수치, 조항에만 100% 근거하여 출제하십시오.
    - 자료 본문에 없는 외부 우편 상식이나 다른 규정, 일반적인 수치(예: 본문에 없는 특정 무게, 요금, 기간, 법령 등)를 임의로 끌어와서 문제나 보기에 추가하지 마십시오.
    - 정답 보기뿐만 아니라 3개의 오답 보기 역시 본문 내용의 사실을 바탕으로 수치를 변경하거나 조건을 반대로 기술하는 방식으로 작성하십시오. 본문과 무관한 엉뚱한 외부 개념을 지어내지 마십시오.
-2. [정답 명확성]: 4개의 보기 중 오직 1개만이 확실한 정답이어야 합니다. 복수정답이 가능한 논란성 문제는 절대 금지합니다.
-3. [보기 품질]:
+2. [문제 발문(question) 작성 절대 원칙 - 목차 및 출제범위 표기 절대 금지]:
+   - **가장 중요**: 문제 발문(question)은 실제 시험지에 인쇄되어 수험생이 읽고 푸는 순수 평가 문제 지문입니다. 발문 내에 파일의 목차, 단원명, 장·절 명칭(예: '제1장', '제2절', '[1단계: ...]', '[제1장 ...]', '[출제범위: ...]', '목차' 등)이나 문서 출제 범위를 절대로 노출하거나 포함하지 마십시오!
+   - 문제 발문은 오직 순수한 질문 지문(예: "다음 중 통상 규격우편물의 허용 중량 및 규격 요건으로 옳은 것은?", "다음 중 다량우편물 요금 감액 요건에 대한 설명으로 옳지 않은 것은?")으로만 간결하고 명확하게 작성해야 합니다.
+   - 단원이나 절, 목차, 출제범위 정보는 발문(question)이 아닌 'category' 및 'source' 필드에만 기재하십시오.
+3. [선택 범위 균등 배분 절대 원칙 (특정 단원 편중 금지)]:
+   - 출제자가 선택한 모든 단원(제X장)과 세부 절(제X절)에서 어느 한쪽에 치우치지 않고 정해진 총 문항 수(${count}문항)를 골고루 나누어 균등하게 배분하여 출제하십시오.
+   - 앞쪽 단원에서만 문제를 몰아서 내고 뒤쪽 단원을 누락하거나 적게 내어서는 절대 안 됩니다.
+   - 각 문제의 'category' 필드에 출제된 단원 또는 세부 절의 명칭을 명확하게 기재하십시오.
+4. [보기(options) 작성 시 원본 말머리 기호(1.., 1), 1., 가., - 등) 포함 절대 금지]:
+   - **가장 중요**: 원본 문서의 목록이나 문장 앞에 붙어 있던 말머리 기호(예: '1.', '1..', '1)', '(1)', '[1]', '1-1.', '가.', '가)', '(가)', '①', '②', '-', '•', '*' 등)를 절대로 보기에 그대로 포함하지 마십시오!
+   - 보기는 시험지의 번호(①, ②, ③, ④) 뒤에 바로 이어지는 순수한 설명 내용이어야 합니다.
+   - 잘못된 작성 예: "1. 가로 140~235mm이다.", "1) 우편요금 사전 납부", "1.. 허용 기준치 적용"
+   - 올바른 작성 예: "가로 140~235mm이다.", "우편요금을 사전에 납부한다.", "허용 기준치를 적용한다."
+5. [정답 명확성]: 4개의 보기 중 오직 1개만이 확실한 정답이어야 합니다. 복수정답이 가능한 논란성 문제는 절대 금지합니다.
+6. [보기 품질]:
    - 4개의 보기는 서로 뚜렷하게 구별되어야 합니다.
    - 정답 보기만 지나치게 길거나 구체적으로 작성하여 쉽게 눈치채지 않도록 보기들의 길이와 문체를 균형 있게 작성하십시오.
    - '모두 맞다', '모두 틀리다', '위의 것 모두 해당한다' 등의 보기는 절대로 사용하지 마십시오.
-4. [정답 위치 균등 분산]: 정답 번호(1, 2, 3, 4)가 특정 번호에 편중되지 않도록 ${count}문항 전체에 걸쳐 1, 2, 3, 4번에 균등하게 분산되도록 배치하십시오.
-5. [실제 본문 출제근거 제시]: 각 문제마다 [출제 근거자료] 본문에서 해당 문제의 근거가 된 실제 문장 또는 규정 단락을 source에 구체적으로 명시하십시오.
-6. [AI 품질 자가검토]: 각 문항별로 정답 단일성(singleAnswer: true), 자료 근거 일치성(sourceSupported: true), 모호성 여부(ambiguity: false)를 철저히 검증하십시오.
+7. [정답 위치 균등 분산]: 정답 번호(1, 2, 3, 4)가 특정 번호에 편중되지 않도록 ${count}문항 전체에 걸쳐 1, 2, 3, 4번에 균등하게 분산되도록 배치하십시오.
+8. [실제 본문 출제근거 제시]: 각 문제마다 [출제 근거자료] 본문에서 해당 문제의 근거가 된 실제 문장 또는 규정 단락을 source에 구체적으로 명시하십시오.
+9. [AI 품질 자가검토]: 각 문항별로 정답 단일성(singleAnswer: true), 자료 근거 일치성(sourceSupported: true), 모호성 여부(ambiguity: false)를 철저히 검증하십시오.
 
 ### [출제 근거자료]
 ${contextSnippet}
@@ -198,7 +234,7 @@ ${contextSnippet}
       fallbackModel: 'gemini-3.1-flash-lite',
       maxRetries: 3,
       config: {
-        systemInstruction: '제공된 출제 근거자료 본문에 실제로 존재하는 내용에만 100% 엄격하게 입각하여 객관적인 4지선다형 평가문항을 출제하는 전문 출제위원입니다. 자료에 없는 외부 사실이나 가상의 규정은 절대 포함하지 않습니다.',
+        systemInstruction: '제공된 출제 근거자료 본문에 실제로 존재하는 내용에만 100% 엄격하게 입각하여 객관적인 4지선다형 평가문항을 출제하는 전문 출제위원입니다. 자료에 없는 외부 사실이나 가상의 규정은 절대 포함하지 않습니다. 문제 발문에는 절대로 목차나 장·절, 출제범위를 표시하지 않고 순수 문제 지문만 출제하며, 보기 작성 시 1.., 1), 가. 등의 말머리 기호를 붙이지 않습니다.',
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
@@ -209,11 +245,11 @@ ${contextSnippet}
                 type: Type.OBJECT,
                 properties: {
                   number: { type: Type.INTEGER, description: '문제 번호 (1부터 시작)' },
-                  question: { type: Type.STRING, description: '문제 발문 (예: 다음 중 우편물 접수 기준에 대한 설명으로 옳은 것은?)' },
+                  question: { type: Type.STRING, description: '순수 문제 발문. 주의: 목차, 단원명, 장·절(예: 제1장, 제2절 등)이나 출제범위 표기를 발문에 절대 포함하지 말고 순수 시험 질문 지문만 작성 (예: "다음 중 통상우편물 규격요건에 대한 설명으로 가장 옳은 것은?")' },
                   options: {
                     type: Type.ARRAY,
                     items: { type: Type.STRING },
-                    description: '보기 4개 (순서대로 ①, ②, ③, ④에 해당)'
+                    description: '보기 4개 (순서대로 ①, ②, ③, ④에 해당). 주의: 원본 문서의 말머리 기호(1.., 1), 1., 가., (1), • 등)를 절대 포함하지 말고 순수 문장만 작성'
                   },
                   answer: { type: Type.INTEGER, description: '정답 번호 (1, 2, 3, 4 중 하나)' },
                   explanation: { type: Type.STRING, description: '상세 해설 (정답인 이유와 오답인 보기들의 틀린 이유 설명)' },
@@ -319,6 +355,8 @@ app.post('/api/regenerate-question', async (req, res) => {
 3. 보기 4개는 균형 잡힌 길이로 작성하며 '모두 맞다/틀리다'는 절대 금지.
 4. 출제근거를 구체적으로 밝힐 것.
 5. 출제자의 재생성 방향(난이도 조정, 업무상황형 전환, 사례형 변경 등)을 충실히 반영할 것.
+6. [발문 표기 금지]: 문제 발문(question)에 파일의 목차, 단원명, 장·절(예: 제1장, 제2절 등) 또는 출제 범위 표기를 절대 포함하지 말고 순수 문제 지문만 작성할 것.
+7. [보기 말머리 제거]: 보기 4개에는 '1..', '1)', '1.', '가.', '•' 등의 원본 말머리 기호를 절대 붙이지 말고 순수 문장만 작성할 것.
 
 ### [우편직무 출제 근거자료 발췌]
 ${content.slice(0, 10000)}
@@ -330,15 +368,16 @@ ${content.slice(0, 10000)}
       fallbackModel: 'gemini-3.1-flash-lite',
       maxRetries: 3,
       config: {
-        systemInstruction: '우편직무 평가문제 전문 출제위원으로서 출제자의 재생성 요구사항을 완벽히 수용하여 고품질 문제를 재생성합니다.',
+        systemInstruction: '우편직무 평가문제 전문 출제위원으로서 출제자의 재생성 요구사항을 완벽히 수용하여 고품질 문제를 재생성합니다. 문제 발문에는 절대로 목차나 장·절, 출제범위를 표기하지 않으며, 보기에는 1.., 1), 가. 등의 말머리 기호를 붙이지 않습니다.',
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            question: { type: Type.STRING },
+            question: { type: Type.STRING, description: '순수 문제 발문 (목차, 장·절, 출제범위 표기 절대 금지)' },
             options: {
               type: Type.ARRAY,
-              items: { type: Type.STRING }
+              items: { type: Type.STRING },
+              description: '보기 4개 (말머리 기호 제외한 순수 문장)'
             },
             answer: { type: Type.INTEGER },
             explanation: { type: Type.STRING },
@@ -370,16 +409,16 @@ ${content.slice(0, 10000)}
     if (qc.alert_message) alerts.push(qc.alert_message);
 
     const safeOptions: [string, string, string, string] = [
-      parsed.options?.[0] || '보기 1',
-      parsed.options?.[1] || '보기 2',
-      parsed.options?.[2] || '보기 3',
-      parsed.options?.[3] || '보기 4',
+      sanitizeOptionText(parsed.options?.[0] || '보기 1'),
+      sanitizeOptionText(parsed.options?.[1] || '보기 2'),
+      sanitizeOptionText(parsed.options?.[2] || '보기 3'),
+      sanitizeOptionText(parsed.options?.[3] || '보기 4'),
     ];
 
     const regenerated: PostalQuestion = {
       id: question.id,
       number: question.number,
-      question: parsed.question || question.question,
+      question: sanitizeQuestionStem(parsed.question || question.question),
       options: safeOptions,
       answer: (parsed.answer >= 1 && parsed.answer <= 4 ? parsed.answer : 1) as 1 | 2 | 3 | 4,
       explanation: parsed.explanation || question.explanation,
@@ -422,10 +461,10 @@ function balanceAndFormatQuestions(rawQuestions: any[], subject: string): Postal
     const opts = Array.isArray(raw.options) ? raw.options : [];
     while (opts.length < 4) opts.push(`추가 보기 ${opts.length + 1}`);
     const safeOptions: [string, string, string, string] = [
-      String(opts[0] || ''),
-      String(opts[1] || ''),
-      String(opts[2] || ''),
-      String(opts[3] || ''),
+      sanitizeOptionText(String(opts[0] || '')),
+      sanitizeOptionText(String(opts[1] || '')),
+      sanitizeOptionText(String(opts[2] || '')),
+      sanitizeOptionText(String(opts[3] || '')),
     ];
 
     let ans = parseInt(raw.answer, 10);
@@ -446,7 +485,7 @@ function balanceAndFormatQuestions(rawQuestions: any[], subject: string): Postal
     const questionItem: PostalQuestion = {
       id: `q-${Date.now()}-${i + 1}-${Math.random().toString(36).slice(2, 7)}`,
       number: i + 1,
-      question: raw.question || `${i + 1}번 평가문제`,
+      question: sanitizeQuestionStem(raw.question || `${i + 1}번 평가문제`),
       options: safeOptions,
       answer: ans as 1 | 2 | 3 | 4,
       explanation: raw.explanation || '해설 정보가 제공되지 않았습니다.',

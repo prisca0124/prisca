@@ -11,6 +11,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { PostalQuestion, ExamConfig } from '../types';
+import { sanitizeQuestionStem, sanitizeOptionText } from '../utils/sanitizeQuestion';
 
 interface ExamPaperViewProps {
   questions: PostalQuestion[];
@@ -38,11 +39,11 @@ export const ExamPaperView: React.FC<ExamPaperViewProps> = ({
     let text = `[ ${subject} - 평가문제지 ]\n\n`;
 
     questions.forEach((q, idx) => {
-      text += `${idx + 1}. ${q.question}\n`;
-      text += `  ① ${q.options[0]}\n`;
-      text += `  ② ${q.options[1]}\n`;
-      text += `  ③ ${q.options[2]}\n`;
-      text += `  ④ ${q.options[3]}\n\n`;
+      text += `${idx + 1}. ${sanitizeQuestionStem(q.question)}\n`;
+      text += `  ① ${sanitizeOptionText(q.options[0])}\n`;
+      text += `  ② ${sanitizeOptionText(q.options[1])}\n`;
+      text += `  ③ ${sanitizeOptionText(q.options[2])}\n`;
+      text += `  ④ ${sanitizeOptionText(q.options[3])}\n\n`;
     });
 
     text += `\n[ 정답 및 해설 ]\n\n`;
@@ -202,7 +203,7 @@ export const ExamPaperView: React.FC<ExamPaperViewProps> = ({
                   {/* Question Stem */}
                   <div className="font-semibold text-base mb-2.5 flex items-start">
                     <span className="w-6 shrink-0">{idx + 1}.</span>
-                    <span className="leading-snug">{q.question}</span>
+                    <span className="leading-snug">{sanitizeQuestionStem(q.question)}</span>
                   </div>
 
                   {/* 4 Options */}
@@ -221,7 +222,7 @@ export const ExamPaperView: React.FC<ExamPaperViewProps> = ({
                           }`}
                         >
                           <span className="shrink-0">{symbol}</span>
-                          <span className="leading-normal">{opt}</span>
+                          <span className="leading-normal">{sanitizeOptionText(opt)}</span>
                           {showAnswer && isCorrect && (
                             <span className="text-[11px] text-red-600 ml-1 font-semibold">
                               (정답)

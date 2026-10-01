@@ -10,6 +10,7 @@ import { GeneratingOverlay } from './components/GeneratingOverlay';
 import { ParsedDocument, ExamConfig, PostalQuestion, SavedExamSession } from './types';
 import { SAMPLE_DOCUMENTS } from './data/sampleDocuments';
 import { generateQuestionsInBrowser } from './utils/clientQuestionGenerator';
+import { sanitizeQuestionStem, sanitizeOptionText } from './utils/sanitizeQuestion';
 import { AlertTriangle, RefreshCw, X, ShieldAlert } from 'lucide-react';
 
 const STORAGE_KEY = 'postal_exam_saved_sessions_v1';
@@ -204,7 +205,17 @@ export default function App() {
 
   const handleOpenSession = (session: SavedExamSession) => {
     setConfig(session.config);
-    setQuestions(session.questions);
+    const sanitizedQuestions = session.questions.map((q) => ({
+      ...q,
+      question: sanitizeQuestionStem(q.question),
+      options: [
+        sanitizeOptionText(q.options[0]),
+        sanitizeOptionText(q.options[1]),
+        sanitizeOptionText(q.options[2]),
+        sanitizeOptionText(q.options[3]),
+      ] as [string, string, string, string],
+    }));
+    setQuestions(sanitizedQuestions);
     const foundDoc = SAMPLE_DOCUMENTS.find((d) => d.fileName === session.fileName);
     if (foundDoc) {
       setDocument(foundDoc);
@@ -271,9 +282,19 @@ export default function App() {
 
       // If backend API succeeded and returned questions
       if (data && data.success && data.questions) {
-        setQuestions(data.questions);
+        const sanitized = data.questions.map((q: PostalQuestion) => ({
+          ...q,
+          question: sanitizeQuestionStem(q.question),
+          options: [
+            sanitizeOptionText(q.options[0]),
+            sanitizeOptionText(q.options[1]),
+            sanitizeOptionText(q.options[2]),
+            sanitizeOptionText(q.options[3]),
+          ] as [string, string, string, string],
+        }));
+        setQuestions(sanitized);
         setCurrentStep(3);
-        showToast(`${data.questions.length}개의 4지선다형 평가문제가 생성되었습니다.`);
+        showToast(`${sanitized.length}개의 4지선다형 평가문제가 생성되었습니다.`);
         return;
       }
 
@@ -298,7 +319,16 @@ export default function App() {
         document.content,
         config.selectedChapters,
         config
-      );
+      ).map((q) => ({
+        ...q,
+        question: sanitizeQuestionStem(q.question),
+        options: [
+          sanitizeOptionText(q.options[0]),
+          sanitizeOptionText(q.options[1]),
+          sanitizeOptionText(q.options[2]),
+          sanitizeOptionText(q.options[3]),
+        ] as [string, string, string, string],
+      }));
       setQuestions(fallbackQuestions);
       setCurrentStep(3);
       showToast(`${fallbackQuestions.length}개의 4지선다형 평가문제가 생성되었습니다.`);
@@ -324,7 +354,16 @@ export default function App() {
           document.content,
           config.selectedChapters,
           config
-        );
+        ).map((q) => ({
+          ...q,
+          question: sanitizeQuestionStem(q.question),
+          options: [
+            sanitizeOptionText(q.options[0]),
+            sanitizeOptionText(q.options[1]),
+            sanitizeOptionText(q.options[2]),
+            sanitizeOptionText(q.options[3]),
+          ] as [string, string, string, string],
+        }));
         setQuestions(fallbackQuestions);
         setCurrentStep(3);
         showToast(`${fallbackQuestions.length}개의 4지선다형 평가문제가 생성되었습니다.`);
@@ -361,8 +400,19 @@ export default function App() {
         throw new Error(errorText);
       }
 
+      const regeneratedSanitized: PostalQuestion = {
+        ...data.question,
+        question: sanitizeQuestionStem(data.question.question),
+        options: [
+          sanitizeOptionText(data.question.options[0]),
+          sanitizeOptionText(data.question.options[1]),
+          sanitizeOptionText(data.question.options[2]),
+          sanitizeOptionText(data.question.options[3]),
+        ] as [string, string, string, string],
+      };
+
       setQuestions((prev) =>
-        prev.map((q) => (q.id === targetQuestion.id ? data.question : q))
+        prev.map((q) => (q.id === targetQuestion.id ? regeneratedSanitized : q))
       );
       showToast(`${targetQuestion.number}번 문제가 새로 생성되었습니다.`);
     } catch (err: any) {
@@ -402,7 +452,17 @@ export default function App() {
   };
 
   const handleUpdateQuestion = (updated: PostalQuestion) => {
-    setQuestions((prev) => prev.map((q) => (q.id === updated.id ? updated : q)));
+    const sanitized = {
+      ...updated,
+      question: sanitizeQuestionStem(updated.question),
+      options: [
+        sanitizeOptionText(updated.options[0]),
+        sanitizeOptionText(updated.options[1]),
+        sanitizeOptionText(updated.options[2]),
+        sanitizeOptionText(updated.options[3]),
+      ] as [string, string, string, string],
+    };
+    setQuestions((prev) => prev.map((q) => (q.id === sanitized.id ? sanitized : q)));
     showToast(`${updated.number}번 문제가 수정되었습니다.`);
   };
 

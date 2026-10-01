@@ -19,6 +19,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { PostalQuestion } from '../types';
+import { sanitizeQuestionStem, sanitizeOptionText } from '../utils/sanitizeQuestion';
 import { EditQuestionModal } from './EditQuestionModal';
 import { RegenerateModal } from './RegenerateModal';
 
@@ -353,7 +354,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
               <div className="p-5 space-y-4">
                 {/* Question Stem */}
                 <div className="text-sm font-bold text-slate-900 leading-relaxed">
-                  {q.number}. {q.question}
+                  {q.number}. {sanitizeQuestionStem(q.question)}
                 </div>
 
                 {/* 4 Options */}
@@ -374,7 +375,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
                         <span className="font-bold text-xs shrink-0 text-slate-800">
                           {optSymbol}
                         </span>
-                        <span className="flex-1 leading-normal">{opt}</span>
+                        <span className="flex-1 leading-normal">{sanitizeOptionText(opt)}</span>
                         {isCorrect && (
                           <span className="text-[10px] font-bold bg-emerald-600 text-white px-1.5 py-0.2 rounded shrink-0">
                             정답

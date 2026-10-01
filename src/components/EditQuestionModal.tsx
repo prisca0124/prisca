@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Check, AlertCircle } from 'lucide-react';
 import { PostalQuestion, DifficultyLevel } from '../types';
+import { sanitizeQuestionStem, sanitizeOptionText } from '../utils/sanitizeQuestion';
 
 interface EditQuestionModalProps {
   question: PostalQuestion;
@@ -13,11 +14,11 @@ export const EditQuestionModal: React.FC<EditQuestionModalProps> = ({
   onSave,
   onClose,
 }) => {
-  const [questionText, setQuestionText] = useState(question.question);
-  const [option1, setOption1] = useState(question.options[0]);
-  const [option2, setOption2] = useState(question.options[1]);
-  const [option3, setOption3] = useState(question.options[2]);
-  const [option4, setOption4] = useState(question.options[3]);
+  const [questionText, setQuestionText] = useState(sanitizeQuestionStem(question.question));
+  const [option1, setOption1] = useState(sanitizeOptionText(question.options[0]));
+  const [option2, setOption2] = useState(sanitizeOptionText(question.options[1]));
+  const [option3, setOption3] = useState(sanitizeOptionText(question.options[2]));
+  const [option4, setOption4] = useState(sanitizeOptionText(question.options[3]));
   const [answer, setAnswer] = useState<1 | 2 | 3 | 4>(question.answer);
   const [explanation, setExplanation] = useState(question.explanation);
   const [difficulty, setDifficulty] = useState<DifficultyLevel>(question.difficulty);
@@ -27,8 +28,13 @@ export const EditQuestionModal: React.FC<EditQuestionModalProps> = ({
   const handleSave = () => {
     const updated: PostalQuestion = {
       ...question,
-      question: questionText.trim(),
-      options: [option1.trim(), option2.trim(), option3.trim(), option4.trim()],
+      question: sanitizeQuestionStem(questionText.trim()),
+      options: [
+        sanitizeOptionText(option1.trim()),
+        sanitizeOptionText(option2.trim()),
+        sanitizeOptionText(option3.trim()),
+        sanitizeOptionText(option4.trim()),
+      ],
       answer,
       explanation: explanation.trim(),
       difficulty,

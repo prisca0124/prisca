@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, RefreshCw, Sparkles, CheckSquare, Square, AlertCircle } from 'lucide-react';
 import { PostalQuestion } from '../types';
+import { sanitizeQuestionStem } from '../utils/sanitizeQuestion';
 
 interface RegenerateModalProps {
   question: PostalQuestion;
@@ -86,7 +87,7 @@ export const RegenerateModal: React.FC<RegenerateModalProps> = ({
             기존 발문:
           </p>
           <p className="text-slate-800 font-medium line-clamp-2">
-            {question.question}
+            {sanitizeQuestionStem(question.question)}
           </p>
           <p className="text-[11px] text-red-700 mt-1">
             출제근거: {question.source}
